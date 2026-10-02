@@ -1,213 +1,225 @@
-# Finance : lib de pricing d’options
+# Finance — lib de pricing d’options
 
-Bibliothèque Python pédagogique pour pricer des options **européennes**, **américaines** et **exotiques**, les combiner en stratégies, et tracer payoffs / grecques.
+Bibliothèque Python pédagogique pour pricer des options **européennes**, **américaines** et **exotiques**, les combiner en stratégies, simuler des modèles de vol (GBM, Heston), et tracer payoffs / P&L / grecques.
 
 ## Installation
 
-Depuis la racine du projet (`finance/`) :
+Depuis la racine du projet :
 
 ```bash
 pip install numpy scipy matplotlib
 ```
 
-Les imports partent de la racine :
+Tout s’importe depuis le package `libs` (namespace public).
+
+## Démarrage rapide
 
 ```python
-from libs.option import EuropeanOption, OptionType
+import libs as fi
+
+call = fi.EuropeanOption(100, 100, 1, 0.05, 0.2, fi.OptionType.CALL)
+put = fi.EuropeanOption(100, 100, 1, 0.05, 0.2, fi.OptionType.PUT)
+
+print(call.price(), call.delta())
+
+straddle = fi.OptionStrategy([call, put], quantities=[1, 1])
+print(straddle.price())
+print(straddle.payoff_at(110))      # payoff brut
+print(straddle.pnl_at_expiry(110))  # P&L en valeur terminale
+
+fi.plot.plot_pnl_at_expiry(call)
 ```
+
+Équivalent :
+
+```python
+from libs import EuropeanOption, OptionType, OptionStrategy
+```
+
+---
 
 ## Architecture
 
 ```
 finance/
-└── libs/
-    ├── option.py           # modèle de domaine + vanilles
-    ├── exotics.py          # options path-dependent
-    ├── montecarlo.py       # simulation GBM + pricers MC
-    ├── optionstrategy.py   # agrégation multi-legs
-    └── plotoption.py       # visualisation (séparée du pricing)
+├── libs/
+│   ├── __init__.py         # API publique (namespace)
+│   ├── option.py           # Option (ABC), European, American
+│   ├── exotics.py          # Asian, Digital, Barrier, Lookback
+│   ├── optionstrategy.py   # multi-legs
+│   ├── montecarlo.py       # GBM + Longstaff–Schwartz
+│   ├── heston.py           # simulation Heston
+│   └── plotoption.py       # visualisation
+└── README.md
 ```
 
-### Rôles des modules
+### Namespace
 
-| Module | Responsabilité |
-|--------|----------------|
-| `option` | Classes `Option` (ABC), `EuropeanOption`, `AmericanOption` ; enums `OptionType`, `ExerciseStyle` |
-| `exotics` | `AsianOption`, `DigitalOption`, `BarrierOption`, `LookbackOption` |
-| `montecarlo` | `simulate_gbm_paths`, `price_american_lsm`, helpers d’actualisation |
-| `optionstrategy` | `OptionStrategy` : somme signée des prix / grecques |
-| `plotoption` | Fonctions de plot ; ne contient **pas** de logique de pricing |
+`libs/__init__.py` réexporte l’API. Les modules internes restent séparés ; le client n’a en principe besoin que de `import libs as fi`.
 
-### Hiérarchie (polymorphisme)
+| Sous-module | Rôle |
+|-------------|------|
+| `option` | domaine + vanilles BS / américain |
+| `exotics` | path-dependent (MC) |
+| `optionstrategy` | agrégation signée |
+| `montecarlo` | chemins GBM, pricing américain |
+| `heston` | chemins Heston |
+| `plotoption` | plots (exposé via `fi.plot`) |
+
+### Hiérarchie
 
 ```
 Option (ABC)
-├── EuropeanOption     → Black–Scholes (+ grecques analytiques)
-├── AmericanOption     → Monte Carlo Longstaff–Schwartz
-├── AsianOption        → MC sur la moyenne du chemin
+├── EuropeanOption     → Black–Scholes (+ grecques)
+├── AmericanOption     → MC Longstaff–Schwartz
+├── AsianOption        → MC moyenne du chemin
 ├── DigitalOption      → MC cash-or-nothing
 ├── BarrierOption      → MC knock-in / knock-out
 └── LookbackOption     → MC fixed / floating strike
 ```
 
-Tout pricing passe par `price()`. Une stratégie manipule des `Option` sans connaître le type concret.
+- **`ExerciseStyle`** : *quand* on exerce (`EUROPEAN` / `AMERICAN`)
+- **Classe d’exotique** : *quel* payoff (+ enums `AsianAverage`, `BarrierType`, `LookbackType`)
 
-Deux axes distincts :
+Tout pricing passe par `price()`. Une `OptionStrategy` manipule des `Option` sans connaître le type concret.
 
-- **`ExerciseStyle`** : *quand* on peut exercer (`EUROPEAN` / `AMERICAN`)
-- **Classe d’exotique** : *quel* payoff path-dependent (+ enums dédiés : `AsianAverage`, `BarrierType`, `LookbackType`)
-
-### Flux typique
+### Flux
 
 ```
-paramètres (S, K, T, r, σ)
+paramètres (S, K, T, r, σ [, params Heston])
         │
         ▼
-   Option concrète  ──price()──►  BS  ou  MC (chemins GBM)
+   Option concrète ──price()──► BS  ou  MC (GBM / Heston)
         │
         ▼
   OptionStrategy (quantités ±1)
         │
         ▼
-  plotoption (payoff / grecques)
+  fi.plot.*  (payoff / P&L / grecques)
 ```
 
-## Paramètres communs
+---
+
+## Paramètres
 
 | Nom | Sens | Unité |
 |-----|------|--------|
 | `S` | spot | devise |
 | `K` | strike | devise |
-| `T` | maturité | **années** (30 j ≈ `30/365`) |
-| `r` | taux sans risque (continu) | décimal (`0.05` = 5 %) |
-| `sigma` | volatilité | décimal (`0.20` = 20 %) |
-| `option_type` | `OptionType.CALL` ou `PUT` | — |
+| `T` | maturité | **années** |
+| `r` | taux sans risque (continu) | décimal |
+| `sigma` | vol (BS / GBM) | décimal |
+| `option_type` | `CALL` / `PUT` | — |
 
-Monte Carlo (kwargs optionnels) : `n_paths`, `n_steps`, `seed`.
+MC : `n_paths`, `n_steps`, `seed`.
+
+---
 
 ## Utilisation
 
-### Européenne (Black–Scholes)
+### Européenne
 
 ```python
-from libs.option import EuropeanOption, OptionType
+import libs as fi
 
-call = EuropeanOption(S=100, K=100, T=1, r=0.05, sigma=0.2, option_type=OptionType.CALL)
-put = EuropeanOption(100, 100, 1, 0.05, 0.2, OptionType.PUT)
-
+call = fi.EuropeanOption(100, 100, 1, 0.05, 0.2, fi.OptionType.CALL)
 call.price()
-call.delta()   # grecques analytiques
-call.gamma()
-call.vega()    # ∂V/∂σ (diviser par 100 pour 1 point de vol)
-call.theta()   # annualisé (≈ /365 pour un jour)
-call.rho()
-call.payoff()  # intrinsèque au spot actuel
-
-# parité call-put (sans dividende) :
-# call.price() - put.price()  ≈  S - K * exp(-r*T)
+call.delta(); call.gamma(); call.vega(); call.theta(); call.rho()
+call.payoff()       # intrinsèque au spot courant
+call.with_spot(110) # clone à un autre spot
 ```
+
+Cas limites :
+- `T <= 0` → intrinsèque
+- `σ = 0`, `T > 0` → \(\max(S - K e^{-rT}, 0)\) (call)
 
 ### Américaine
 
 ```python
-from libs.option import AmericanOption, OptionType
-
-am_put = AmericanOption(
-    100, 100, 1, 0.05, 0.2, OptionType.PUT,
-    n_paths=50_000, n_steps=252, seed=42,
-)
-am_put.price()  # ≥ put européen (exercice anticipé)
-# pas de grecques BS : NotImplementedError (bumps MC possibles)
+put = fi.AmericanOption(100, 100, 1, 0.05, 0.2, fi.OptionType.PUT, n_paths=50_000)
+put.price()  # ≥ put européen
 ```
 
 ### Exotiques
 
 ```python
-from libs.option import OptionType
-from libs.exotics import (
-    AsianOption, AsianAverage,
-    DigitalOption,
-    BarrierOption, BarrierType,
-    LookbackOption, LookbackType,
+asia = fi.AsianOption(
+    100, 100, 1, 0.05, 0.2, fi.OptionType.CALL,
+    average=fi.AsianAverage.ARITHMETIC, n_paths=50_000,
 )
-
-asian = AsianOption(
-    100, 100, 1, 0.05, 0.2, OptionType.CALL,
-    average=AsianAverage.ARITHMETIC,  # ou GEOMETRIC
-    n_paths=50_000,
+digital = fi.DigitalOption(100, 100, 1, 0.05, 0.2, fi.OptionType.CALL, cash=1.0)
+barrier = fi.BarrierOption(
+    100, 100, 1, 0.05, 0.2, fi.OptionType.CALL,
+    barrier=120, barrier_type=fi.BarrierType.UP_AND_OUT,
 )
-
-digital = DigitalOption(100, 100, 1, 0.05, 0.2, OptionType.CALL, cash=1.0)
-
-barrier = BarrierOption(
-    100, 100, 1, 0.05, 0.2, OptionType.CALL,
-    barrier=120.0, barrier_type=BarrierType.UP_AND_OUT,
-)
-
-lookback = LookbackOption(
-    100, 100, 1, 0.05, 0.2, OptionType.CALL,
-    lookback=LookbackType.FIXED_STRIKE,  # ou FLOATING_STRIKE
+lookback = fi.LookbackOption(
+    100, 100, 1, 0.05, 0.2, fi.OptionType.CALL,
+    lookback=fi.LookbackType.FIXED_STRIKE,
 )
 ```
 
-Ordres de grandeur utiles :
-- asian < vanilla (moyenne moins volatile)
-- knock-out < vanilla ; lookback > vanilla
-- put américain ≥ put européen
-
-### Stratégies
+### Stratégies — payoff vs P&L
 
 ```python
-from libs.optionstrategy import OptionStrategy
-
-# quantities : +1 = long, -1 = short
-straddle = OptionStrategy([call, put], quantities=[1, 1])
-bull_call = OptionStrategy([call_low_K, call_high_K], quantities=[1, -1])
+straddle = fi.OptionStrategy([call, put], quantities=[1, 1])  # +1 long, -1 short
 
 straddle.price()
 straddle.delta()
-straddle.payoff_at(S=110)       # intrinsèques signées seulement
-straddle.pnl_at_expiry(S=110)   # payoff_T − V_0·e^{rT} (valeur terminale)
+
+# Payoff brut à T (intrinsèques signées seulement)
+straddle.payoff_at(110)
+
+# P&L en valeur terminale : payoff_T − V_0 · e^{rT}
+straddle.pnl_at_expiry(110)
+```
+
+Ne pas confondre les deux : le payoff ignore la prime ; le P&L capitalise la prime jusqu’à \(T\).
+
+### Simulation
+
+```python
+# Black–Scholes / GBM
+paths = fi.simulate_gbm_paths(100, 1.0, 0.05, 0.2, n_paths=10_000)
+
+# Heston (Euler + réflexion) — shape (n_paths, n_steps+1)
+S, v = fi.simulate_heston_paths(
+    S0=100, v0=0.04, r=0.05,
+    kappa=2.0, theta=0.04, xi=0.3, rho=-0.7,
+    T=1.0, n_paths=10_000, n_steps=252, seed=42,
+)
+fi.feller_ok(2.0, 0.04, 0.3)  # 2κθ > ξ² ?
 ```
 
 ### Graphiques
 
-Les plots sont **hors** des classes d’options :
-
 ```python
-import libs.plotoption as plot
-
-plot.plot_payoff(call)                 # payoff brut
-plot.plot_pnl_at_expiry(call)          # P&L valeur T
-plot.plot_price(call)
-plot.plot_delta(call)
-plot.plot_gamma(call)
-plot.plot_vega(call)
-plot.plot_theta(call)
-plot.plot_rho(call)
-plot.plot_strategy_payoff(straddle)
-plot.plot_strategy_pnl_at_expiry(straddle)
+fi.plot.plot_payoff(call)              # payoff brut
+fi.plot.plot_pnl_at_expiry(call)       # P&L valeur T
+fi.plot.plot_delta(call)
+fi.plot.plot_strategy_payoff(straddle)
+fi.plot.plot_strategy_pnl_at_expiry(straddle)
 ```
 
-`with_spot(S)` (sur chaque `Option`) clone le contrat à un autre spot — utilisé en interne par les plots de grecques.
+---
 
-## Modèles sous-jacents
+## Modèles
 
-| Produit | Moteur | Hypothèses |
-|---------|--------|------------|
-| Européenne | formule BS | GBM, pas de dividende |
-| Américaine | Longstaff–Schwartz | GBM, régression sur base `{1, S, S²}` |
-| Path-dependent | MC | chemins GBM, payoff actualisé `e^{-rT}` |
+| Produit | Moteur | Notes |
+|---------|--------|--------|
+| Européenne | Black–Scholes | GBM, pas de dividende |
+| Américaine | Longstaff–Schwartz | exercice anticipé |
+| Path-dependent | MC GBM | payoff actualisé \(e^{-rT}\) |
+| Heston | Euler–Maruyama | vol stochastique, biais près de 0 |
 
-Simulation partagée : `libs.montecarlo.simulate_gbm_paths(...)`.
+---
 
 ## Étendre la lib
 
-1. Créer une sous-classe de `Option`
+1. Sous-classer `Option`
 2. Implémenter `price()` et `with_spot()`
-3. Passer le bon `ExerciseStyle` au `super().__init__`
-4. (Optionnel) surcharger les grecques, sinon elles restent `NotImplementedError`
-5. Brancher dans une `OptionStrategy` comme n’importe quelle autre `Option`
+3. Réexporter dans `libs/__init__.py` (+ `__all__`)
+
+---
 
 ## Licence
 
