@@ -43,15 +43,30 @@ def plot_price(option: Option):
 
 
 def plot_payoff(option: Option):
+    """Courbe de payoff brut à l'expiration (sans prime)."""
     S_range = _spot_grid(option)
     if option.option_type == OptionType.CALL:
-        intrinsic = np.maximum(S_range - option.K, 0.0)
+        values = np.maximum(S_range - option.K, 0.0)
     else:
-        intrinsic = np.maximum(option.K - S_range, 0.0)
-    pnl = intrinsic - option.price()
+        values = np.maximum(option.K - S_range, 0.0)
     kind = option.option_type.value
     _plot_vs_spot(
-        S_range, pnl, K=option.K, ylabel="P&L", title=f"Payoff {kind}", label=f"P&L {kind}"
+        S_range, values, K=option.K, ylabel="Payoff", title=f"Payoff {kind}", label=f"Payoff {kind}"
+    )
+
+
+def plot_pnl_at_expiry(option: Option):
+    """P&L en valeur terminale : payoff_T − V_0 e^{rT}."""
+    S_range = _spot_grid(option)
+    premium_fwd = option.price() * np.exp(option.r * option.T)
+    if option.option_type == OptionType.CALL:
+        payoff = np.maximum(S_range - option.K, 0.0)
+    else:
+        payoff = np.maximum(option.K - S_range, 0.0)
+    pnl = payoff - premium_fwd
+    kind = option.option_type.value
+    _plot_vs_spot(
+        S_range, pnl, K=option.K, ylabel="P&L (valeur T)", title=f"P&L {kind}", label=f"P&L {kind}"
     )
 
 
@@ -101,17 +116,36 @@ def plot_rho(option: Option):
 
 
 def plot_strategy_payoff(strategy: OptionStrategy):
+    """Payoff brut de la stratégie à l'expiration (sans primes)."""
     strikes = [opt.K for opt in strategy.options]
     S_range = np.linspace(min(strikes) * 0.7, max(strikes) * 1.3, 300)
-    pnl = [strategy.payoff_at(S) for S in S_range]
+    values = [strategy.payoff_at(S) for S in S_range]
 
-    plt.plot(S_range, pnl, label="P&L stratégie")
+    plt.plot(S_range, values, label="Payoff stratégie")
     for K in sorted(set(strikes)):
         plt.axvline(K, linestyle="--", alpha=0.5, label=f"K={K}")
     plt.axhline(0, color="black", linewidth=0.8)
     plt.xlabel("Prix du sous-jacent à l'expiration (S)")
-    plt.ylabel("P&L")
+    plt.ylabel("Payoff")
     plt.title("Payoff de la stratégie")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
+
+def plot_strategy_pnl_at_expiry(strategy: OptionStrategy):
+    """P&L en valeur terminale : payoff_T − V_0 e^{rT} (par leg)."""
+    strikes = [opt.K for opt in strategy.options]
+    S_range = np.linspace(min(strikes) * 0.7, max(strikes) * 1.3, 300)
+    values = [strategy.pnl_at_expiry(S) for S in S_range]
+
+    plt.plot(S_range, values, label="P&L stratégie (valeur T)")
+    for K in sorted(set(strikes)):
+        plt.axvline(K, linestyle="--", alpha=0.5, label=f"K={K}")
+    plt.axhline(0, color="black", linewidth=0.8)
+    plt.xlabel("Prix du sous-jacent à l'expiration (S)")
+    plt.ylabel("P&L (valeur T)")
+    plt.title("P&L de la stratégie à l'expiration")
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()

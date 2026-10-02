@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+import math
 
 import numpy as np
 import scipy.stats as stats
@@ -91,8 +92,16 @@ class EuropeanOption(Option):
         return self._d1() - self.sigma * np.sqrt(self.T)
 
     def price(self) -> float:
-        if self.T <= 0 or self.sigma <= 0:
+        if self.T <= 0:
             return self.payoff()
+
+        # σ = 0, T > 0 : ST = S·e^{rT} déterministe sous Q
+        # Call = e^{-rT} max(S e^{rT} - K, 0) = max(S - K e^{-rT}, 0)
+        if self.sigma <= 0:
+            df = math.exp(-self.r * self.T)
+            if self.option_type == OptionType.CALL:
+                return float(max(self.S - self.K * df, 0.0))
+            return float(max(self.K * df - self.S, 0.0))
 
         D1, D2 = self._d1(), self._d2()
         discount = self.K * np.exp(-self.r * self.T)

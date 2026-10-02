@@ -166,7 +166,8 @@ bull_call = OptionStrategy([call_low_K, call_high_K], quantities=[1, -1])
 
 straddle.price()
 straddle.delta()
-straddle.payoff_at(S=110)  # P&L à l’expiration pour un spot donné
+straddle.payoff_at(S=110)       # intrinsèques signées seulement
+straddle.pnl_at_expiry(S=110)   # payoff_T − V_0·e^{rT} (valeur terminale)
 ```
 
 ### Graphiques
@@ -176,7 +177,8 @@ Les plots sont **hors** des classes d’options :
 ```python
 import libs.plotoption as plot
 
-plot.plot_payoff(call)
+plot.plot_payoff(call)                 # payoff brut
+plot.plot_pnl_at_expiry(call)          # P&L valeur T
 plot.plot_price(call)
 plot.plot_delta(call)
 plot.plot_gamma(call)
@@ -184,6 +186,7 @@ plot.plot_vega(call)
 plot.plot_theta(call)
 plot.plot_rho(call)
 plot.plot_strategy_payoff(straddle)
+plot.plot_strategy_pnl_at_expiry(straddle)
 ```
 
 `with_spot(S)` (sur chaque `Option`) clone le contrat à un autre spot — utilisé en interne par les plots de grecques.

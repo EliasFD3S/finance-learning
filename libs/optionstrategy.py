@@ -1,4 +1,5 @@
 from libs.option import Option, OptionType
+import math
 
 
 class OptionStrategy:
@@ -31,13 +32,31 @@ class OptionStrategy:
     def rho(self):
         return sum(q * opt.rho() for q, opt in zip(self.quantities, self.options))
 
+    @staticmethod
+    def _intrinsic(opt: Option, S: float) -> float:
+        if opt.option_type == OptionType.CALL:
+            return max(S - opt.K, 0.0)
+        return max(opt.K - S, 0.0)
+
     def payoff_at(self, S: float) -> float:
-        """Payoff net à l'expiration pour un spot S (intrinsic - prime, signé)."""
+        """
+        Payoff brut à l'expiration pour un spot S_T = S.
+        Somme signée des intrinsèques uniquement (sans la prime).
+        """
+        return sum(
+            q * self._intrinsic(opt, S)
+            for q, opt in zip(self.quantities, self.options)
+        )
+
+    def pnl_at_expiry(self, S: float) -> float:
+        """
+        P&L en valeur terminale à l'expiration :
+            P&L_T = payoff_T - V_0 * e^{r T}
+        La prime payée en t=0 est capitalisée jusqu'à T (taux de chaque leg).
+        """
         total = 0.0
         for q, opt in zip(self.quantities, self.options):
-            if opt.option_type == OptionType.CALL:
-                intrinsic = max(S - opt.K, 0.0)
-            else:
-                intrinsic = max(opt.K - S, 0.0)
-            total += q * (intrinsic - opt.price())
+            payoff_T = self._intrinsic(opt, S)
+            premium_fwd = opt.price() * math.exp(opt.r * opt.T)
+            total += q * (payoff_T - premium_fwd)
         return total
