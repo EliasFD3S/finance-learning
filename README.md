@@ -1,4 +1,4 @@
-# Finance — lib de pricing d’options
+# Finance : lib de pricing d’options
 
 Bibliothèque Python pédagogique pour pricer des options **européennes**, **américaines** et **exotiques**, les combiner en stratégies, et tracer payoffs / grecques.
 
